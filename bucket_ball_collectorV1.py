@@ -2,6 +2,7 @@ import cv2
 import mediapipe as mp
 import pygame
 import numpy as np
+import random
 
 # Initialize MediaPipe Pose
 mp_pose = mp.solutions.pose
@@ -10,81 +11,140 @@ pose = mp_pose.Pose(min_detection_confidence=0.7, min_tracking_confidence=0.7)
 # Initialize Pygame
 pygame.init()
 WIDTH, HEIGHT = 800, 600
+CAMERA_WIDTH, CAMERA_HEIGHT = 200, 150  # Small camera feed in the corner
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 clock = pygame.time.Clock()
+pygame.mixer.init()
 
 # Load Assets
-background = pygame.image.load("background.jpg")
-bucket_img = pygame.image.load("bucket.png")
-ball_img = pygame.image.load("ball.png")
+background = pygame.image.load(r"D:\Marvinno\Gesture_Game\background.jpg").convert()
+
+bucket_img = pygame.image.load(r"D:\Marvinno\Gesture_Game\tank.png").convert_alpha()
+ball_img = pygame.image.load(r"D:\Marvinno\Gesture_Game\rain_drop.png").convert_alpha()
+golden_ball_img = pygame.image.load(r"D:\Marvinno\Gesture_Game\golden_drop.png").convert_alpha()
 
 # Resize Images
-background = pygame.transform.scale(background, (WIDTH, HEIGHT))  # Fit screen
-bucket_width, bucket_height = 150, 75  # Bigger bucket
-bucket_img = pygame.transform.scale(bucket_img, (bucket_width, bucket_height))
-ball_img = pygame.transform.scale(ball_img, (30, 30))  # Slightly bigger ball
+background = pygame.transform.smoothscale(background, (WIDTH, HEIGHT))
+
+bucket_width = 150
+bucket_height = int(bucket_img.get_height() * (bucket_width / bucket_img.get_width()))
+bucket_img = pygame.transform.smoothscale(bucket_img, (bucket_width, bucket_height))
+
+ball_width = 30
+ball_height = int(ball_img.get_height() * (ball_width / ball_img.get_width()))
+ball_img = pygame.transform.smoothscale(ball_img, (ball_width, ball_height))
+golden_ball_img = pygame.transform.smoothscale(golden_ball_img, (ball_width, ball_height))
+
+# Sounds
+catch_sound = pygame.mixer.Sound(r"D:\Marvinno\Gesture_Game\catch.wav")
+
+background_music = r"D:\Marvinno\Gesture_Game\bg_music.mp3"
+pygame.mixer.music.load(background_music)
+pygame.mixer.music.play(-1)
+
+# Fonts
+font = pygame.font.SysFont("Times New Roman", 48)
+
+def draw_text(text, x, y, color=(255, 255, 255), size=48):
+    font = pygame.font.SysFont("Times New Roman", size)
+    text_surface = font.render(text, True, color)
+    screen.blit(text_surface, (x, y))
 
 # Game Variables
 bucket = pygame.Rect(WIDTH // 2 - bucket_width // 2, HEIGHT - 120, bucket_width, bucket_height)
-ball = pygame.Rect(np.random.randint(0, WIDTH - 30), 0, 30, 30)
+ball = None  # Only one drop at a time
+lives = 3
 score = 0
+ball_speed = 5
+paused = False
 
-# Capture Video
+# Camera Settings
 cap = cv2.VideoCapture(0)
-running = True
+cap.set(3, 640)  # Capture width
+cap.set(4, 360)  # Capture height
 
-while running:
+def spawn_ball():
+    """ Spawns a new ball only if none exists. """
+    global ball
+    if ball is None:
+        special = random.random() < 0.2  # 20% chance for a golden drop
+        ball_type = "golden" if special else "normal"
+        ball = {
+            "rect": pygame.Rect(np.random.randint(0, WIDTH - ball_width), 0, ball_width, ball_height),
+            "type": ball_type
+        }
+
+# Spawn the first ball
+spawn_ball()
+
+while True:
     ret, frame = cap.read()
     if not ret:
         break
 
-    # Flip frame for mirror effect
-    frame = cv2.flip(frame, 1)
-    h, w, _ = frame.shape
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    result = pose.process(rgb_frame)
+    frame = cv2.flip(frame, 1)  # Mirror effect for natural movement
+    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Convert BGR to RGB to fix blue tint
+    frame = cv2.resize(frame, (640, 360))  # Resize to focus on relevant area
+    result = pose.process(frame)
 
     # Detect body position
     if result.pose_landmarks:
         left_hip = result.pose_landmarks.landmark[mp_pose.PoseLandmark.LEFT_HIP]
         right_hip = result.pose_landmarks.landmark[mp_pose.PoseLandmark.RIGHT_HIP]
-        x_body = int(((left_hip.x + right_hip.x) / 2) * WIDTH)
-        bucket.x = max(0, min(WIDTH - bucket.width, x_body))
+        
+        # Normalize movement so slight shifts move the tank more
+        x_body = ((left_hip.x + right_hip.x) / 2) * WIDTH
+        bucket.x += (x_body - bucket.x) * 0.5  # Increased follow speed for better movement
 
-    # Draw UI
-    screen.blit(background, (0, 0))  # Set background
-    screen.blit(bucket_img, bucket)  # Draw larger bucket
-    screen.blit(ball_img, ball)  # Draw ball
+        # Limit tank movement within screen
+        bucket.x = max(0, min(bucket.x, WIDTH - bucket_width))
 
-    # Ball movement
-    ball.y += 5
-    if ball.y > HEIGHT:
-        ball.x = np.random.randint(0, WIDTH - 30)
-        ball.y = 0
+    screen.blit(background, (0, 0))
+    screen.blit(bucket_img, bucket)
 
-    # Check collision
-    if bucket.colliderect(ball):
-        score += 1
-        ball.x = np.random.randint(0, WIDTH - 30)
-        ball.y = 0
+    if ball:
+        ball["rect"].y += ball_speed
+        if ball["type"] == "golden":
+            screen.blit(golden_ball_img, ball["rect"])
+        else:
+            screen.blit(ball_img, ball["rect"])
+    
+    # Ball Collision & Removal
+    if ball:
+        if bucket.colliderect(ball["rect"]):  # Ball caught
+            score += 5 if ball["type"] == "golden" else 1
+            pygame.mixer.Sound.play(catch_sound)
+            if score % 10 == 0:
+                ball_speed += 1
+            ball = None  # Remove the caught ball
+        elif ball["rect"].y > HEIGHT:  # Ball missed
+            lives -= 1
+            ball = None  # Remove the missed ball
+            if lives == 0:
+                break
 
-    # Display Score
-    font = pygame.font.Font(None, 48)
-    score_text = font.render(f"Score: {score}", True, (255, 255, 255))
-    screen.blit(score_text, (20, 20))
+    # Spawn a new ball if the previous one is gone
+    spawn_ball()
 
-    # Show webcam video
-    cv2.imshow("Body Tracking", frame)
+    # Draw Score and Lives Next to Each Other
+    draw_text(f"Lives: {lives} | Score: {score}", WIDTH - 350, 20, (255, 255, 255), 48)
 
-    # Update Game Display
+    # Convert camera frame for Pygame and display it
+    frame = cv2.resize(frame, (CAMERA_WIDTH, CAMERA_HEIGHT))  # Resize for overlay
+    frame = np.rot90(frame)  # Rotate to match Pygame coordinate system
+    frame_surface = pygame.surfarray.make_surface(frame)  # Convert to Pygame surface
+    screen.blit(pygame.transform.scale(frame_surface, (CAMERA_WIDTH, CAMERA_HEIGHT)), (10, 10))  # Resize before displaying
+
     pygame.display.flip()
     clock.tick(30)
 
-    # Exit on keypress
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
-            running = False
+            break
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_p:
+                paused = not paused
+                pygame.mixer.music.pause() if paused else pygame.mixer.music.unpause()
 
 cap.release()
-cv2.destroyAllWindows()
 pygame.quit()

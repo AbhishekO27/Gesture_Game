@@ -77,7 +77,7 @@ Make sure the following files are present in the correct paths:
 
 ## 🎮 Gameplay Preview
 
-![Gameplay Preview](media1/preview.gif)
+[▶️ Watch Game Preview](https://github.com/ishant1809/Gesture_Game/issues/1#issue-2973119993)
 
 
 

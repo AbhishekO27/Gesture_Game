@@ -36,8 +36,8 @@ Control a water tank using your **hip movement** detected by your webcam. Catch 
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/your-username/gesture-drop-catcher.git
-   cd gesture-drop-catcher
+   git clone https://github.com/ishant1809/Gesture_Game/.git
+   cd Gesture_Game
    ```
 
 2. **Install dependencies**

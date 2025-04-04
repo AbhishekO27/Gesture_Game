@@ -75,8 +75,9 @@ Make sure the following files are present in the correct paths:
 
 ---
 
-## 📸 Preview
+## 🎮 Gameplay Preview
 
+![Gameplay Preview](media1/preview.gif)
 
 
 
